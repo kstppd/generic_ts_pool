@@ -68,7 +68,7 @@ private:
 
   inline void _unlock() const noexcept { _mlock.unlock(); }
 
-  [[nodiscard]] inline constexpr size_t
+  [[nodiscard]] inline size_t
   calculatePadding(size_t size, size_t alignment) const noexcept {
     size_t remainder = size % alignment;
     if (remainder == 0) {
@@ -98,14 +98,14 @@ public:
   MemPool() : _memory(nullptr){}
   MemPool(const MemPool &other) = delete;
   MemPool(MemPool &&other) = delete;
-  MemPool &operator=(const MemPool &other) = delete;
+  MemPool &operator=(const MemPool &other);
   MemPool &operator=(MemPool &&other) = delete;
   ~MemPool() = default;
 
   inline size_t capacity(void) const noexcept { return _bytes; }
   inline size_t size(void) const noexcept { return _bytes - _freeSpace; }
   inline float load(void) const noexcept {
-    return static_cast<float>(size())/static_cast<float>(size());
+    return static_cast<float>(size())/static_cast<float>(capacity());
   }
   inline void release(void) noexcept { reset(); }
 
@@ -120,7 +120,6 @@ public:
     reset();
   }
 
-#ifdef DEBUG
   void stats() noexcept {
     printf("*********************************\n");
     printf("Capacity=%zu , size= %zu , load = %f\n ", capacity(), size(),
@@ -128,7 +127,8 @@ public:
     printf("FreeSlots\n");
     for (std::map<size_t, size_t>::iterator slot = _freeBlocks.begin();
          slot != _freeBlocks.end(); slot++) {
-      printf("\tBlock %zu with size %zu\n", slot->first, slot->second);
+      //printf("\tBlock %zu with size %zu\n", slot->first, slot->second);
+      std::cout<<"\tBlock "<< slot->first<<" with sie "<<slot->second<<std::endl;
     }
     printf("\n");
     printf("\n");
@@ -140,7 +140,6 @@ public:
     }
     printf("*********************************\n");
   }
-#endif
 
   void defrag() {
     _lock();
@@ -189,8 +188,11 @@ public:
 
   template <typename T>
   [[nodiscard]] T *allocate(const size_t elements) noexcept {
+     if (elements==0){
+           return nullptr;
+     }
     const size_t bytesToAllocate = elements * sizeof(T);
-    const size_t alignment = std::alignment_of<T>();
+    const size_t alignment = std::max(8ul,std::alignment_of<T>::value);
     size_t allocationSize = bytesToAllocate;
 
     if (bytesToAllocate > _freeSpace) {
@@ -222,26 +224,29 @@ public:
     return reinterpret_cast<T *>(baseAddress);
   }
 
-  void deallocate(void *ptr) noexcept {
+  bool deallocate(void *ptr) noexcept {
 
     if (ptr == nullptr) {
-      return;
+      return true;
     }
 
     _lock();
     auto it = _allocBlocks.find(reinterpret_cast<size_t>(ptr));
     if (it == _allocBlocks.end()) {
       _unlock();
-      return;
+      return false;
     }
 
     size_t pad = it->second.padding;
     size_t baseAddress = it->first - pad;
-    _freeBlocks.insert(std::pair<size_t, size_t>{baseAddress, it->second.size});
+    _freeBlocks[baseAddress]=it->second.size;
     _freeSpace += it->second.size;
+    if (it->second.size==0){
+       abort();
+    }
     _allocBlocks.erase(it);
     _unlock();
-    return;
+    return true;
   }
 };
 } // namespace GENERIC_TS_POOL
