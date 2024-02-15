@@ -248,5 +248,10 @@ public:
     _unlock();
     return true;
   }
+  template <typename F>
+  void destroy_with(F&& f){
+     f(_memory);
+  }
+
 };
 } // namespace GENERIC_TS_POOL

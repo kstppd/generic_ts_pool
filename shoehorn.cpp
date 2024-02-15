@@ -15,11 +15,11 @@ static constexpr size_t GB = KB * KB * KB;
 static constexpr size_t TB = KB * KB * KB * KB;
 
 //Enable pools and pick pool sizes
-#define DEVICE_POOL_ENABLE
+//#define DEVICE_POOL_ENABLE
 #define MANAGED_POOL_ENABLE
 //#define HOST_POOL_ENABLE
-static constexpr size_t DEVICE_POOL_SIZE = 32 * GB;
-static constexpr size_t MANAGED_POOL_SIZE = 32 * GB;
+static constexpr size_t DEVICE_POOL_SIZE = 3 * GB;
+static constexpr size_t MANAGED_POOL_SIZE = 3 * GB;
 static constexpr size_t HOST_POOL_SIZE = 512 * MB;
 
 #ifdef DEVICE_POOL_ENABLE
@@ -52,22 +52,57 @@ typedef cudaError_t (*orig_Free_type)(void* ptr);
 const char* c_Malloc{"cudaMalloc"};
 const char* c_MallocManaged{"cudaMallocManaged"};
 const char* c_MallocHost{"cudaMallocHost"};
+const char* c_Free{"cudaFree"};
+const char* c_FreeHost{"cudaFreeHost"};
+
+template<typename type>
+void init_pool(GENERIC_TS_POOL::MemPool& p,size_t size, const char* symbol){
+   void* buffer = nullptr;
+   type original = (type)dlsym(RTLD_NEXT, symbol);
+   original((void**)&buffer,size);
+   if (buffer==nullptr){
+      throw std::runtime_error("Failed to initialize Pools");
+   }
+   p.resize(buffer, size);
+}
+
+static void __attribute__((destructor))destroy_pools(){
+#ifdef MANAGED_POOL_ENABLE
+   {
+      printf("Destroying managed Pool\n");
+      orig_Free_type deallocMethod = (orig_Free_type)dlsym(RTLD_NEXT, c_Free);
+      managedPool.destroy_with(deallocMethod);
+   }
+#endif
+#ifdef DEVICE_POOL_ENABLE
+   {
+      printf("Destroying devide Pool\n");
+      orig_Free_type deallocMethod = (orig_Free_type)dlsym(RTLD_NEXT, c_Free);
+      devicePool.destroy_with(deallocMethod);
+   }
+#endif
+#ifdef HOST_POOL_ENABLE
+   {
+      printf("Destroying host Pool\n");
+      orig_Free_type deallocMethod = (orig_Free_type)dlsym(RTLD_NEXT, c_FreeHost);
+      hostPool.destroy_with(deallocMethod);
+   }
+#endif
+}
 
 extern "C" {
 
 #ifdef MANAGED_POOL_ENABLE
 cudaError_t cudaMallocManaged(void** ptr, size_t n) {
    if (!initManaged) {
-      _device_lock.lock();
+      _managed_lock.lock();
       if (initManaged) {
          return cudaMallocManaged(ptr, n);
       }
       initManaged = true;
-      void* buffer = nullptr;
-      orig_Malloc_type origmalloc = (orig_Malloc_type)dlsym(RTLD_NEXT, c_MallocManaged);
-      origmalloc((void**)&buffer, MANAGED_POOL_SIZE);
-      managedPool.resize(buffer, MANAGED_POOL_SIZE);
-      _device_lock.unlock();
+      printf("Intializing managed pool with size= %zu B\n",MANAGED_POOL_SIZE);
+      init_pool<orig_Malloc_type>(managedPool,MANAGED_POOL_SIZE,c_MallocManaged);
+      _managed_lock.unlock();
    }
    *ptr = managedPool.allocate<char>(n);
    return *ptr ? cudaSuccess : cudaErrorMemoryAllocation;
@@ -82,10 +117,8 @@ cudaError_t cudaMalloc(void** ptr, size_t n) {
          return cudaMalloc(ptr, n);
       }
       initDevice = true;
-      void* buffer = nullptr;
-      orig_Malloc_type origmalloc = (orig_Malloc_type)dlsym(RTLD_NEXT, c_Malloc);
-      origmalloc((void**)&buffer, DEVICE_POOL_SIZE);
-      devicePool.resize(buffer, DEVICE_POOL_SIZE);
+      printf("Intializing device pool with size= %zu B\n",DEVICE_POOL_SIZE);
+      init_pool<orig_Malloc_type>(devicePool,DEVICE_POOL_SIZE,c_Malloc);
       _device_lock.unlock();
    }
    *ptr = devicePool.allocate<char>(n);
@@ -101,10 +134,8 @@ cudaError_t cudaMallocAsync(void** ptr, size_t n) {
          return cudaMallocAsync(ptr, n);
       }
       initDevice = true;
-      void* buffer = nullptr;
-      orig_Malloc_type origmalloc = (orig_Malloc_type)dlsym(RTLD_NEXT, c_Malloc);
-      origmalloc((void**)&buffer, DEVICE_POOL_SIZE);
-      devicePool.resize(buffer, DEVICE_POOL_SIZE);
+      printf("Intializing device pool with size= %zu B\n",DEVICE_POOL_SIZE);
+      init_pool<orig_Malloc_type>(devicePool,DEVICE_POOL_SIZE,c_Malloc);
       _device_async_lock.unlock();
    }
    *ptr = devicePool.allocate<char>(n);
@@ -120,10 +151,8 @@ cudaError_t cudaMallocHost(void** ptr, size_t n) {
          return cudaMallocHost(ptr, n);
       }
       initHost = true;
-      void* buffer = nullptr;
-      orig_Malloc_type origmalloc = (orig_Malloc_type)dlsym(RTLD_NEXT, c_MallocHost);
-      origmalloc((void**)&buffer, HOST_POOL_SIZE);
-      hostPool.resize(buffer, HOST_POOL_SIZE);
+      printf("Intializing host pool with size= %zu B\n",HOST_POOL_SIZE);
+      init_pool<orig_Malloc_type>(hostPool,HOST_POOL_SIZE,c_MallocHost);
       _host_lock.unlock();
    }
    *ptr = hostPool.allocate<char>(n);
@@ -154,7 +183,10 @@ cudaError_t cudaFree(void* ptr) {
 #endif
 
 #if !defined(MANAGED_POOL_ENABLE) && defined(DEVICE_POOL_ENABLE)
-cudaError_t cudaFree(void* ptr) { devicePool.deallocate(ptr); }
+cudaError_t cudaFree(void* ptr) {
+   devicePool.deallocate(ptr); 
+   return cudaSuccess;
+}
 #endif
 
 #ifdef DEVICE_POOL_ENABLE
