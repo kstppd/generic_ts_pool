@@ -172,8 +172,10 @@ public:
     return;
   }
 
-  std::map<size_t, size_t>::iterator findBlock(size_t& bytes, size_t alignment) {
-    for (std::map<size_t, size_t>::iterator slot = _freeBlocks.begin(); slot != _freeBlocks.end(); slot++) {
+  std::map<size_t, size_t>::iterator findBlock(size_t &bytes,
+                                               size_t alignment) {
+    for (std::map<size_t, size_t>::iterator slot = _freeBlocks.begin();
+         slot != _freeBlocks.end(); slot++) {
       size_t baseAddress = slot->first;
       size_t padding = calculatePadding(baseAddress, alignment);
       if (slot->second >= bytes + padding) {

@@ -1,7 +1,7 @@
 CC=g++
 OPT=
 #SANITIZER= -fsanitize=address -fno-omit-frame-pointer 
-CXXFLAGS= -g3 -ggdb -std=c++20 -fopenmp -Wno-c++98-compat -Wall  -Wpedantic -fno-omit-frame-pointer
+CXXFLAGS= -g3 -ggdb -std=c++20 -fopenmp -Wall  -Wpedantic -fno-omit-frame-pointer
 GTEST= -L/home/kstppd/libs/googletest/build/lib  -I/home/kstppd/libs/googletest/googletest/include -lgtest -lgtest_main -lpthread
 OBJ= main.o
 BIN=mempool_test
@@ -15,5 +15,8 @@ allclean:
 main.o: main.cpp
 	${CC} ${SANITIZER} ${CXXFLAGS} ${OPT}  -o ${BIN} main.cpp ${GTEST}
 
+
+driver.o: driver.cu
+	nvcc  -o driver driver.cu -cudart shared
 
 
