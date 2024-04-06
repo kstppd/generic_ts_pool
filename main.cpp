@@ -8,8 +8,8 @@ void go (){
    
    for (size_t i =0 ; i < 10000000 ;i++){
       float* n= p.allocate<float>(10000);
-      for (size_t j =0 ; j<100 ;j++){
-         n[j]=j;
+      for (size_t j = 0; j < 100; j++) {
+         n[j] = j;
       }
       p.deallocate(n);
    }
