@@ -17,7 +17,7 @@ static constexpr size_t TB = KB * KB * KB * KB;
 
 // Enable pools and pick pool sizes
 #define DEVICE_POOL_ENABLE
-#define MANAGED_POOL_ENABLE
+// #define MANAGED_POOL_ENABLE
 
 //Pick size
 static constexpr size_t DEVICE_POOL_SIZE = 4 * GB;
@@ -33,6 +33,7 @@ bool initDevice = false;
 static GENERIC_TS_POOL::MemPool *managedPool;
 bool initManaged = false;
 #endif
+  
 
 __attribute__((constructor))
 static void initme(){
@@ -82,23 +83,32 @@ static void finitme(){
 }
 
 extern "C" {
+#ifdef MANAGED_POOL_ENABLE
 cudaError_t cudaMallocManaged(void** ptr, size_t size, unsigned int flags) {
    (void)flags;
    *ptr = (void*)managedPool->allocate<char>(size);
    if (ptr==nullptr){return cudaErrorMemoryAllocation;}
    return cudaSuccess;
 }
+#endif
 
+#ifdef DEVICE_POOL_ENABLE
 cudaError_t cudaMalloc(void** ptr, size_t size) {
    *ptr = (void*)devicePool->allocate<char>(size);
    if (ptr==nullptr){return cudaErrorMemoryAllocation;}
    return cudaSuccess;
 }
+#endif
 
 cudaError_t cudaFree(void* ptr) {
-   bool ok = managedPool->deallocate(ptr);
+   bool ok = false;
+   #ifdef MANAGED_POOL_ENABLE
+   ok = managedPool->deallocate(ptr);
+   #endif
    if (!ok) {
+      #ifdef DEVICE_POOL_ENABLE
       devicePool->deallocate(ptr);
+      #endif
    }
    return cudaSuccess;
 }
