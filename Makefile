@@ -1,4 +1,4 @@
-CC=g++
+CC=g++  -I/usr/include/ -I/home/kstppd/software/abseil-cpp/absl/container/  -I/home/kstppd/software/abseil-cpp/
 OPT=
 #SANITIZER= -fsanitize=address -fno-omit-frame-pointer 
 CXXFLAGS= -g3 -ggdb -std=c++20 -fopenmp -Wall  -Wpedantic -fno-omit-frame-pointer

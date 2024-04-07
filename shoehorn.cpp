@@ -1,5 +1,5 @@
 #if 0 
-g++ -I/usr/include/ -fPIC --shared -o -O3  libshoehorn.so shoehorn.cpp -ldl -lcudart
+g++ -I/usr/include/ -fPIC --shared  -O3  -o libshoehorn.so shoehorn.cpp -ldl -lcudart
 exit 0
 #endif
 #define _GNU_SOURCE

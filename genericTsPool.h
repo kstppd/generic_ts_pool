@@ -46,6 +46,8 @@
 #include <unordered_map>
 #include <mutex>
 #include <stdlib.h>
+#include <boost/unordered_map.hpp>
+#include <boost/container/map.hpp>
 
 namespace GENERIC_TS_POOL {
 class MemPool {
@@ -60,8 +62,8 @@ private:
   size_t _bytes;
   size_t _freeSpace;
   mutable std::mutex _mlock;
-  std::map<size_t, size_t> _freeBlocks;
-  std::unordered_map<size_t, AllocHeader> _allocBlocks;
+  boost::container::map<size_t, size_t> _freeBlocks;
+  boost::unordered_map<size_t, AllocHeader> _allocBlocks;
   //~ private members
 
   inline void _lock() const noexcept { _mlock.lock(); }
@@ -125,7 +127,7 @@ public:
     printf("Capacity=%zu , size= %zu , load = %f\n ", capacity(), size(),
            load());
     printf("FreeSlots\n");
-    for (std::map<size_t, size_t>::iterator slot = _freeBlocks.begin();
+    for (auto slot = _freeBlocks.begin();
          slot != _freeBlocks.end(); slot++) {
       //printf("\tBlock %zu with size %zu\n", slot->first, slot->second);
       std::cout<<"\tBlock "<< slot->first<<" with sie "<<slot->second<<std::endl;
@@ -133,7 +135,7 @@ public:
     printf("\n");
     printf("\n");
     printf("AllocSlots\n");
-    for (std::unordered_map<size_t, AllocHeader>::iterator slot = _allocBlocks.begin();
+    for (auto slot = _allocBlocks.begin();
          slot != _allocBlocks.end(); slot++) {
       printf("\tBlock %zu with size = %zu and padding= %zu\n", slot->first,
              slot->second.size, slot->second.padding);
@@ -172,9 +174,9 @@ public:
     return;
   }
 
-  std::map<size_t, size_t>::iterator findBlock(size_t &bytes,
+  boost::container::map<size_t, size_t>::iterator findBlock(size_t &bytes,
                                                size_t alignment) {
-    for (std::map<size_t, size_t>::iterator slot = _freeBlocks.begin();
+    for (auto slot = _freeBlocks.begin();
          slot != _freeBlocks.end(); slot++) {
       size_t baseAddress = slot->first;
       size_t padding = calculatePadding(baseAddress, alignment);
