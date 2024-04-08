@@ -97,10 +97,10 @@ public:
     _memory = block;
     reset();
   }
-  MemPool() : _memory(nullptr){}
+  MemPool() : _memory(nullptr),_bytes(0),_freeSpace(0){}
   MemPool(const MemPool &other) = delete;
   MemPool(MemPool &&other) = delete;
-  MemPool &operator=(const MemPool &other);
+  MemPool &operator=(const MemPool &other)=delete;
   MemPool &operator=(MemPool &&other) = delete;
   ~MemPool() = default;
 
