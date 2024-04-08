@@ -1,16 +1,17 @@
 #if 0 
-g++ -I/usr/include/ -fPIC --shared  -O3  -o libshoehorn.so shoehorn.cpp -ldl -lcudart 
+/opt/rocm/llvm/bin/clang++   -I${ROCM_PATH}/include -O3 -std=c++20  -fPIC -shared  -D__HIP_PLATFORM_AMD__ -o libshoehorn.so shoehorn_hip.cpp -ldl
 exit 0
 #endif
 /*
-   Inspired by Samule Antao's work -->https://github.com/sfantao/vlasiator-mempool 
+   Inspired by Samuel Antao's work -->https://github.com/sfantao/vlasiator-mempool 
    Running Vlasiator with it --> mpirun -n tasks -x LD_PRELOAD=./libshoehorn.so vlasiator....
 */
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <unistd.h>
 #include <dlfcn.h>
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
+#include <cstddef>
 #include <assert.h>
 #include "genericTsPool.h"
 
@@ -44,24 +45,25 @@ __attribute__((constructor))
 static void initme(){
    {
 #ifdef MANAGED_POOL_ENABLE
+
       printf("Installing Managed Pool!\n");
-      cudaError_t (*cudaMalloc_ptr)(void**, size_t, unsigned int) =
-          (cudaError_t(*)(void**, size_t, unsigned int))dlsym(RTLD_NEXT, "cudaMallocManaged");
-      assert(cudaMalloc_ptr);
+      hipError_t (*hipMalloc_ptr)(void**, size_t, unsigned int) = (hipError_t(*)(void**, size_t, unsigned int))dlsym(RTLD_NEXT, "hipMallocManaged");
+      assert(hipMalloc_ptr);
       void* buffer = nullptr;
-      cudaMalloc_ptr(&buffer, MANAGED_POOL_SIZE, cudaMemAttachGlobal);
+      hipMalloc_ptr(&buffer, MANAGED_POOL_SIZE, hipMemAttachGlobal);
       managedPool = new GENERIC_TS_POOL::MemPool(buffer, MANAGED_POOL_SIZE);
       initManaged = true;
+
 #endif
    }
 
    {
 #ifdef DEVICE_POOL_ENABLE
       printf("Installing Device Pool!\n");
-      cudaError_t (*cudaMalloc_ptr)(void**, size_t) = (cudaError_t(*)(void**, size_t))dlsym(RTLD_NEXT, "cudaMalloc");
-      assert(cudaMalloc_ptr);
+      hipError_t (*hipMalloc_ptr)(void**, size_t) = (hipError_t(*)(void**, size_t))dlsym(RTLD_NEXT, "hipMalloc");
+      assert(hipMalloc_ptr);
       void* buffer = nullptr;
-      cudaMalloc_ptr(&buffer, DEVICE_POOL_SIZE);
+      hipMalloc_ptr(&buffer, DEVICE_POOL_SIZE);
       devicePool = new GENERIC_TS_POOL::MemPool(buffer, DEVICE_POOL_SIZE);
       initDevice = true;
 #endif
@@ -76,8 +78,8 @@ static void finitme(){
       managedPool->defrag();
       managedPool->stats();
       #endif
-      cudaError_t (*cudaFree_ptr)(void*) = (cudaError_t(*)(void*))dlsym(RTLD_NEXT, "cudaFree");
-      managedPool->destroy_with(cudaFree_ptr);
+      hipError_t (*hipFree_ptr)(void*) = (hipError_t(*)(void*))dlsym(RTLD_NEXT, "hipFree");
+      managedPool->destroy_with(hipFree_ptr);
       delete managedPool;
 #endif
    }
@@ -88,8 +90,8 @@ static void finitme(){
       devicePool->defrag();
       devicePool->stats();
       #endif
-      cudaError_t (*cudaFree_ptr)(void*) = (cudaError_t(*)(void*))dlsym(RTLD_NEXT, "cudaFree");
-      devicePool->destroy_with(cudaFree_ptr);
+      hipError_t (*hipFree_ptr)(void*) = (hipError_t(*)(void*))dlsym(RTLD_NEXT, "hipFree");
+      devicePool->destroy_with(hipFree_ptr);
       delete devicePool;
 #endif
    }
@@ -98,36 +100,36 @@ static void finitme(){
 //Exposed API
 extern "C" {
    #ifdef MANAGED_POOL_ENABLE
-   cudaError_t cudaMallocManaged(void** ptr, size_t size, unsigned int flags) {
+   hipError_t hipMallocManaged(void** ptr, size_t size, unsigned int flags) {
       UNUSED_ON_PURPOSE(flags);
       *ptr = (void*)managedPool->allocate<char>(size);
-      if (ptr==nullptr){return cudaErrorMemoryAllocation;}
-      return cudaSuccess;
+      if (ptr==nullptr){return hipErrorMemoryAllocation;}
+      return hipSuccess;
    }
    #endif
 
    #ifdef DEVICE_POOL_ENABLE
-   cudaError_t cudaMalloc(void** ptr, size_t size) {
+   hipError_t hipMalloc(void** ptr, size_t size) {
       *ptr = (void*)devicePool->allocate<char>(size);
-      if (ptr==nullptr){return cudaErrorMemoryAllocation;}
-      return cudaSuccess;
+      if (ptr==nullptr){return hipErrorMemoryAllocation;}
+      return hipSuccess;
    }
 
-   cudaError_t cudaMallocAsync(void** ptr, size_t size,cudaStream_t s) {
+   hipError_t hipMallocAsync(void** ptr, size_t size,hipStream_t s) {
       UNUSED_ON_PURPOSE(s);
       *ptr = (void*)devicePool->allocate<char>(size);
-      if (ptr==nullptr){return cudaErrorMemoryAllocation;}
-      return cudaSuccess;
+      if (ptr==nullptr){return hipErrorMemoryAllocation;}
+      return hipSuccess;
    }
 
-   cudaError_t cudaFreeAsync(void* ptr,cudaStream_t s) {
+   hipError_t hipFreeAsync(void* ptr,hipStream_t s) {
       UNUSED_ON_PURPOSE(s);
       devicePool->deallocate(ptr);
-      return cudaSuccess;
+      return hipSuccess;
    }
    #endif
 
-   cudaError_t cudaFree(void* ptr) {
+   hipError_t hipFree(void* ptr) {
       bool ok = false;
       #ifdef MANAGED_POOL_ENABLE
       ok = managedPool->deallocate(ptr);
@@ -137,6 +139,6 @@ extern "C" {
          devicePool->deallocate(ptr);
          #endif
       }
-      return cudaSuccess;
+      return hipSuccess;
    }
 }

@@ -3,7 +3,10 @@
 A thread safe generic memory pool that is memory type agnostic which means that it can manage CUDA,HIP,Stack,Dynamic memory et al.
 
 ### CUDA Hooks
-The file ```shoehorn.cpp``` implements hooks for cuda using the ```genericTsPool.h``` inspired by https://github.com/sfantao/vlasiator-mempool.git.
+The file ```shoehorn_cuda.cpp``` implements hooks for cuda using ```genericTsPool.h``` inspired by https://github.com/sfantao/vlasiator-mempool.git.
+
+### HIP Hooks
+The file ```shoehorn_hip.cpp``` implements hooks for HIP using ```genericTsPool.h``` inspired by https://github.com/sfantao/vlasiator-mempool.git.
 
 ```c++
         //main.cpp
