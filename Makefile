@@ -1,8 +1,7 @@
-CC=g++  -I/usr/include/ -I/home/kstppd/software/abseil-cpp/absl/container/  -I/home/kstppd/software/abseil-cpp/
-OPT=
-#SANITIZER= -fsanitize=address -fno-omit-frame-pointer 
+CC=g++  
+OPT=-O2
+SANITIZER= -fsanitize=address  
 CXXFLAGS= -g3 -ggdb -std=c++20 -fopenmp -Wall  -Wpedantic -fno-omit-frame-pointer
-GTEST= -L/home/kstppd/libs/googletest/build/lib  -I/home/kstppd/libs/googletest/googletest/include -lgtest -lgtest_main -lpthread
 OBJ= main.o
 BIN=mempool_test
 
@@ -13,10 +12,6 @@ allclean:
 	rm ${BIN} &
 
 main.o: main.cpp
-	${CC} ${SANITIZER} ${CXXFLAGS} ${OPT}  -o ${BIN} main.cpp ${GTEST}
-
-
-driver.o: driver.cu
-	nvcc  -o driver driver.cu -cudart shared
+	${CC} ${SANITIZER} ${CXXFLAGS} ${OPT}  -o ${BIN} main.cpp 
 
 

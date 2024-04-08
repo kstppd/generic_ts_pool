@@ -8,6 +8,11 @@ The file ```shoehorn_cuda.cpp``` implements hooks for cuda using ```genericTsPoo
 ### HIP Hooks
 The file ```shoehorn_hip.cpp``` implements hooks for HIP using ```genericTsPool.h``` inspired by https://github.com/sfantao/vlasiator-mempool.git.
 
+## Run the test
+```
+make && ./mempool_test
+  
+```
 
 ## A Minimal Example 
 ```c++
