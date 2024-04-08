@@ -8,25 +8,26 @@ The file ```shoehorn_cuda.cpp``` implements hooks for cuda using ```genericTsPoo
 ### HIP Hooks
 The file ```shoehorn_hip.cpp``` implements hooks for HIP using ```genericTsPool.h``` inspired by https://github.com/sfantao/vlasiator-mempool.git.
 
+
+## A Minimal Example 
 ```c++
-        //main.cpp
-        //Example Minimal Usage:
-        size_t sz=1<<12;
-        char block[sz];  // <-- this can be whatever memory block
-        GENERIC_TS_POOL::MemPool pool(&block,sz);
+//main.cpp
+size_t sz=1<<12;
+char block[sz];  // <-- this can be whatever memory block and the pool will never try 
+                                                     //      to dereference it. 
+GENERIC_TS_POOL::MemPool pool(&block,sz);
 
-        //Allocate an array of 4 doubles
-        double* number = pool.allocate<double>(4);
+//Allocate an array of 4 doubles
+double* number = pool.allocate<double>(4);
 
-        // Do smth with it
-        number[0]=1.0;
-        number[1]=2.0;
-        .  .  .
-        .  .  .
-        //Deallocate the array
-        pool.deallocate(number);
+// Do smth with it
+number[0]=1.0;
+number[1]=2.0;
+.  .  .
+.  .  .
+//Deallocate the array
+pool.deallocate(number);
 
-        //Defrag the pool.
-        pool.defrag();
-
+//Defrag the pool.
+pool.defrag();
 ```
