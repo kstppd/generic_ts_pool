@@ -46,8 +46,8 @@
 #include <unordered_map>
 #include <mutex>
 #include <stdlib.h>
-#include <boost/unordered_map.hpp>
-#include <boost/container/map.hpp>
+#include <unordered_map>
+#include <map>
 
 namespace GENERIC_TS_POOL {
 class MemPool {
@@ -62,8 +62,8 @@ private:
   size_t _bytes;
   size_t _freeSpace;
   mutable std::mutex _mlock;
-  boost::container::map<size_t, size_t> _freeBlocks;
-  boost::unordered_map<size_t, AllocHeader> _allocBlocks;
+  std::map<size_t, size_t> _freeBlocks;
+  std::unordered_map<size_t, AllocHeader> _allocBlocks;
   //~ private members
 
   inline void _lock() const noexcept { _mlock.lock(); }
@@ -174,7 +174,7 @@ public:
     return;
   }
 
-  boost::container::map<size_t, size_t>::iterator findBlock(size_t &bytes,
+  std::map<size_t, size_t>::iterator findBlock(size_t &bytes,
                                                size_t alignment) {
     for (auto slot = _freeBlocks.begin();
          slot != _freeBlocks.end(); slot++) {
