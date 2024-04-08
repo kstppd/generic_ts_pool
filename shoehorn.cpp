@@ -22,7 +22,7 @@ static constexpr size_t TB = KB * KB * KB * KB;
 // Enable pools and pick pool sizes
 #define DEVICE_POOL_ENABLE    //hooks cudaMalloc, cudaMallocAsync, cudaFree and cudaFreeAsync
 #define MANAGED_POOL_ENABLE   //hooks cudaMallocManaged and cudaFree
-#define PRINT_LEAKS           // will print allocated and free blocks at the end of program.
+#define SNITCH_MODE           // will print allocated and free blocks at the end of program.
 
 //Pick size for each pool
 static constexpr size_t DEVICE_POOL_SIZE  = 4 * GB;
@@ -72,7 +72,7 @@ __attribute__((destructor))
 static void finitme(){
    {
 #ifdef MANAGED_POOL_ENABLE
-      #ifdef PRINT_LEAKS
+      #ifdef SNITCH_MODE
       managedPool->defrag();
       managedPool->stats();
       #endif
@@ -84,7 +84,7 @@ static void finitme(){
 
    {
 #ifdef DEVICE_POOL_ENABLE
-      #ifdef PRINT_LEAKS
+      #ifdef SNITCH_MODE
       devicePool->defrag();
       devicePool->stats();
       #endif
