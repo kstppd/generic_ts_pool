@@ -29,6 +29,7 @@ static constexpr size_t DEVICE_POOL_SIZE  = 4 * GB;
 static constexpr size_t MANAGED_POOL_SIZE = 4 * GB;
 
 //----------Do not touch-----------------
+#define UNUSED_ON_PURPOSE(x) (void)x
 #ifdef DEVICE_POOL_ENABLE
 static GENERIC_TS_POOL::MemPool *devicePool;
 bool initDevice = false;
@@ -98,7 +99,7 @@ static void finitme(){
 extern "C" {
    #ifdef MANAGED_POOL_ENABLE
    cudaError_t cudaMallocManaged(void** ptr, size_t size, unsigned int flags) {
-      (void)flags;
+      UNUSED_ON_PURPOSE(flags);
       *ptr = (void*)managedPool->allocate<char>(size);
       if (ptr==nullptr){return cudaErrorMemoryAllocation;}
       return cudaSuccess;
@@ -113,12 +114,14 @@ extern "C" {
    }
 
    cudaError_t cudaMallocAsync(void** ptr, size_t size,cudaStream_t s) {
+      UNUSED_ON_PURPOSE(s);
       *ptr = (void*)devicePool->allocate<char>(size);
       if (ptr==nullptr){return cudaErrorMemoryAllocation;}
       return cudaSuccess;
    }
 
    cudaError_t cudaFreeAsync(void* ptr,cudaStream_t s) {
+      UNUSED_ON_PURPOSE(s);
       devicePool->deallocate(ptr);
       return cudaSuccess;
    }
