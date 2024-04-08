@@ -1,7 +1,11 @@
 #if 0 
-g++ -I/usr/include/ -fPIC --shared  -O3  -o libshoehorn.so shoehorn.cpp -ldl -lcudart
+g++ -I/usr/include/ -fPIC --shared  -O3  -o libshoehorn.so shoehorn.cpp -ldl -lcudart 
 exit 0
 #endif
+/*
+   Inspired by Samule Antao's work -->https://github.com/sfantao/vlasiator-mempool 
+   Running Vlasiator with it --> mpirun -n tasks -x LD_PRELOAD=./libshoehorn.so vlasiator....
+*/
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <unistd.h>
@@ -16,11 +20,12 @@ static constexpr size_t GB = KB * KB * KB;
 static constexpr size_t TB = KB * KB * KB * KB;
 
 // Enable pools and pick pool sizes
-#define DEVICE_POOL_ENABLE
-// #define MANAGED_POOL_ENABLE
+#define DEVICE_POOL_ENABLE    //hooks cudaMalloc, cudaMallocAsync, cudaFree and cudaFreeAsync
+#define MANAGED_POOL_ENABLE   //hooks cudaMallocManaged and cudaFree
+#define PRINT_LEAKS           // will print allocated and free blocks at the end of program.
 
-//Pick size
-static constexpr size_t DEVICE_POOL_SIZE = 4 * GB;
+//Pick size for each pool
+static constexpr size_t DEVICE_POOL_SIZE  = 4 * GB;
 static constexpr size_t MANAGED_POOL_SIZE = 4 * GB;
 
 //----------Do not touch-----------------
@@ -34,10 +39,8 @@ static GENERIC_TS_POOL::MemPool *managedPool;
 bool initManaged = false;
 #endif
   
-
 __attribute__((constructor))
 static void initme(){
-
    {
 #ifdef MANAGED_POOL_ENABLE
       printf("Installing Managed Pool!\n");
@@ -68,13 +71,22 @@ __attribute__((destructor))
 static void finitme(){
    {
 #ifdef MANAGED_POOL_ENABLE
+      #ifdef PRINT_LEAKS
+      managedPool->defrag();
+      managedPool->stats();
+      #endif
       cudaError_t (*cudaFree_ptr)(void*) = (cudaError_t(*)(void*))dlsym(RTLD_NEXT, "cudaFree");
       managedPool->destroy_with(cudaFree_ptr);
       delete managedPool;
 #endif
    }
+
    {
 #ifdef DEVICE_POOL_ENABLE
+      #ifdef PRINT_LEAKS
+      devicePool->defrag();
+      devicePool->stats();
+      #endif
       cudaError_t (*cudaFree_ptr)(void*) = (cudaError_t(*)(void*))dlsym(RTLD_NEXT, "cudaFree");
       devicePool->destroy_with(cudaFree_ptr);
       delete devicePool;
@@ -82,34 +94,46 @@ static void finitme(){
    }
 }
 
+//Exposed API
 extern "C" {
-#ifdef MANAGED_POOL_ENABLE
-cudaError_t cudaMallocManaged(void** ptr, size_t size, unsigned int flags) {
-   (void)flags;
-   *ptr = (void*)managedPool->allocate<char>(size);
-   if (ptr==nullptr){return cudaErrorMemoryAllocation;}
-   return cudaSuccess;
-}
-#endif
-
-#ifdef DEVICE_POOL_ENABLE
-cudaError_t cudaMalloc(void** ptr, size_t size) {
-   *ptr = (void*)devicePool->allocate<char>(size);
-   if (ptr==nullptr){return cudaErrorMemoryAllocation;}
-   return cudaSuccess;
-}
-#endif
-
-cudaError_t cudaFree(void* ptr) {
-   bool ok = false;
    #ifdef MANAGED_POOL_ENABLE
-   ok = managedPool->deallocate(ptr);
-   #endif
-   if (!ok) {
-      #ifdef DEVICE_POOL_ENABLE
-      devicePool->deallocate(ptr);
-      #endif
+   cudaError_t cudaMallocManaged(void** ptr, size_t size, unsigned int flags) {
+      (void)flags;
+      *ptr = (void*)managedPool->allocate<char>(size);
+      if (ptr==nullptr){return cudaErrorMemoryAllocation;}
+      return cudaSuccess;
    }
-   return cudaSuccess;
-}
+   #endif
+
+   #ifdef DEVICE_POOL_ENABLE
+   cudaError_t cudaMalloc(void** ptr, size_t size) {
+      *ptr = (void*)devicePool->allocate<char>(size);
+      if (ptr==nullptr){return cudaErrorMemoryAllocation;}
+      return cudaSuccess;
+   }
+
+   cudaError_t cudaMallocAsync(void** ptr, size_t size,cudaStream_t s) {
+      *ptr = (void*)devicePool->allocate<char>(size);
+      if (ptr==nullptr){return cudaErrorMemoryAllocation;}
+      return cudaSuccess;
+   }
+
+   cudaError_t cudaFreeAsync(void* ptr,cudaStream_t s) {
+      devicePool->deallocate(ptr);
+      return cudaSuccess;
+   }
+   #endif
+
+   cudaError_t cudaFree(void* ptr) {
+      bool ok = false;
+      #ifdef MANAGED_POOL_ENABLE
+      ok = managedPool->deallocate(ptr);
+      #endif
+      if (!ok) {
+         #ifdef DEVICE_POOL_ENABLE
+         devicePool->deallocate(ptr);
+         #endif
+      }
+      return cudaSuccess;
+   }
 }
