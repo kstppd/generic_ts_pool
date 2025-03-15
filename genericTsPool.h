@@ -13,7 +13,6 @@
 
         //Allocate an array of 4 doubles
         double* number = pool.allocate<double>(4);
-        
         // Do smth with it
         number[0]=1.0;
         number[1]=2.0;
@@ -38,222 +37,281 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301,
+ USA.
  * */
 #pragma once
+#include <atomic>
+#include <cstddef>
+#include <cstdio>
 #include <iostream>
 #include <map>
-#include <unordered_map>
 #include <mutex>
 #include <stdlib.h>
+#include <sys/mman.h>
+#include <unistd.h>
 #include <unordered_map>
-#include <map>
+#include <utility>
+#include <vector>
+
+// #define THREADSAFE
+
+template <typename T>
+struct MMapAllocator {
+   using value_type = T;
+
+   MMapAllocator() = default;
+   template <typename U>
+   constexpr MMapAllocator(const MMapAllocator<U>&) noexcept {}
+   T* allocate(std::size_t n) {
+      void* ptr = mmap(nullptr, n * sizeof(T), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+      if (ptr == MAP_FAILED) {
+         throw std::bad_alloc();
+      }
+      return static_cast<T*>(ptr);
+   }
+   void deallocate(T* ptr, std::size_t n) noexcept { munmap(ptr, n * sizeof(T)); }
+   template <typename U>
+   bool operator==(const MMapAllocator<U>&) const {
+      return true;
+   }
+   template <typename U>
+   bool operator!=(const MMapAllocator<U>&) const {
+      return false;
+   }
+};
 
 namespace GENERIC_TS_POOL {
 class MemPool {
-  struct AllocHeader {
-    size_t size;
-    size_t padding;
-  };
+   struct AllocHeader {
+      size_t size = {0};
+      size_t padding = {0};
+   };
+
 
 private:
-  // private members
-  void *_memory;
-  size_t _bytes;
-  size_t _freeSpace;
-  mutable std::mutex _mlock;
-  std::map<size_t, size_t> _freeBlocks;
-  std::unordered_map<size_t, AllocHeader> _allocBlocks;
-  //~ private members
+   // private members
+   void* _memory = {nullptr};
+   size_t _bytes = {0};
+   size_t _freeSpace = {0};
+   std::atomic<int> users = {0};
+   mutable std::mutex _mlock;
+   std::map<size_t, size_t, std::less<size_t>, MMapAllocator<std::pair<const size_t, size_t>>> _freeBlocks;
+   std::unordered_map<size_t, AllocHeader, std::hash<size_t>, std::equal_to<size_t>,
+                      MMapAllocator<std::pair<const size_t, AllocHeader>>>
+       _allocBlocks;
 
-  inline void _lock() const noexcept { _mlock.lock(); }
+   float HWM = 0;
+   //~ private members
 
-  inline void _unlock() const noexcept { _mlock.unlock(); }
+   inline void _lock() const noexcept {
+#ifdef THREADSAFE
+      _mlock.lock();
+#endif
+   }
 
-  [[nodiscard]] inline size_t
-  calculatePadding(size_t size, size_t alignment) const noexcept {
-    size_t remainder = size % alignment;
-    if (remainder == 0) {
-      return 0;
-    }
-    return alignment - remainder;
-  }
+   inline void _unlock() const noexcept {
+#ifdef THREADSAFE
+      _mlock.unlock();
+#endif
+   }
 
-  void reset() noexcept {
-    _lock();
-    _freeBlocks.clear();
-    _allocBlocks.clear();
-    _freeBlocks[reinterpret_cast<size_t>(_memory)] = capacity();
-    _freeSpace = capacity();
-    _unlock();
-  }
+   [[nodiscard]] inline size_t calculatePadding(size_t size, size_t alignment) const noexcept {
+      size_t remainder = size % alignment;
+      return (remainder == 0) ? 0 : alignment - remainder;
+   }
+
+   void reset() noexcept {
+      _lock();
+      _freeBlocks.clear();
+      _allocBlocks.clear();
+      _freeBlocks[reinterpret_cast<size_t>(_memory)] = capacity();
+      _freeSpace = capacity();
+      _unlock();
+   }
+
+   void reset_unsafe() noexcept {
+      _freeBlocks[reinterpret_cast<size_t>(_memory)] = capacity();
+      _freeSpace = capacity();
+   }
 
 public:
-  MemPool(void *block, size_t maxSize) : _bytes(maxSize), _freeSpace(maxSize) {
-    if (block == nullptr) {
-      throw std::runtime_error(
-          "Null pointer cannot be used to instantiate mempool!");
-    }
-    _memory = block;
-    reset();
-  }
-  MemPool() : _memory(nullptr),_bytes(0),_freeSpace(0){}
-  MemPool(const MemPool &other) = delete;
-  MemPool(MemPool &&other) = delete;
-  MemPool &operator=(const MemPool &other)=delete;
-  MemPool &operator=(MemPool &&other) = delete;
-  ~MemPool() = default;
-
-  inline size_t capacity(void) const noexcept { return _bytes; }
-  inline size_t size(void) const noexcept { return _bytes - _freeSpace; }
-  inline float load(void) const noexcept {
-    return static_cast<float>(size())/static_cast<float>(capacity());
-  }
-  inline void release(void) noexcept { reset(); }
-
-  void resize(void *block, size_t maxSize) {
-    if (block == nullptr) {
-      throw std::runtime_error(
-          "Null pointer cannot be used to resize mempool!");
-    }
-    _memory = block;
-    _bytes = maxSize;
-    _freeSpace = maxSize;
-    reset();
-  }
-
-  void stats() noexcept {
-    printf("*********************************\n");
-    printf("Capacity=%zu , size= %zu , load = %f\n ", capacity(), size(),
-           load());
-    printf("FreeSlots\n");
-    for (auto slot = _freeBlocks.begin();
-         slot != _freeBlocks.end(); slot++) {
-      //printf("\tBlock %zu with size %zu\n", slot->first, slot->second);
-      std::cout<<"\tBlock "<< slot->first<<" with sie "<<slot->second<<std::endl;
-    }
-    printf("\n");
-    printf("\n");
-    printf("AllocSlots\n");
-    for (auto slot = _allocBlocks.begin();
-         slot != _allocBlocks.end(); slot++) {
-      printf("\tBlock %zu with size = %zu and padding= %zu\n", slot->first,
-             slot->second.size, slot->second.padding);
-    }
-    printf("*********************************\n");
-  }
-
-  void defrag() {
-    _lock();
-    auto left = _freeBlocks.begin();
-    while (left != _freeBlocks.end()) {
-      auto right = left;
-      right++;
-      if (right == _freeBlocks.end()) {
-        _unlock();
-        return;
+   MemPool(void* block, size_t maxSize) : _bytes(maxSize), _freeSpace(maxSize) {
+      if (block == nullptr) {
+         throw std::runtime_error("Null pointer cannot be used to instantiate mempool!");
       }
+      _memory = block;
+      reset();
+   }
+   MemPool() : _memory(nullptr) {}
+   MemPool(const MemPool& other) = delete;
+   MemPool(MemPool&& other) = delete;
+   MemPool& operator=(const MemPool& other);
+   MemPool& operator=(MemPool&& other) = delete;
+   ~MemPool() = default;
 
-      if (left->first + left->second == right->first) {
-        std::pair<size_t, size_t> newBlock{left->first,
-                                           left->second + right->second};
-        _freeBlocks.erase(left);
-        _freeBlocks.erase(right);
-        auto ok = _freeBlocks.insert(newBlock);
-        if (ok.second) {
-          left = ok.first;
-        } else {
-          throw std::runtime_error(
-              "Something caused a catastrophic failure during defragmentation");
-        }
-      } else {
-        left++;
+   inline float memory_hwm(void) const noexcept { return HWM; }
+   inline size_t capacity(void) const noexcept { return _bytes; }
+   inline size_t size(void) const noexcept { return _bytes - _freeSpace; }
+   inline float load(void) const noexcept { return static_cast<float>(size()) / static_cast<float>(capacity()); }
+   inline void release(void) noexcept { reset(); }
+
+   void resize(void* block, size_t maxSize) {
+      if (block == nullptr) {
+         throw std::runtime_error("Null pointer cannot be used to resize mempool!");
       }
-    }
-    _unlock();
-    return;
-  }
+      _memory = block;
+      _bytes = maxSize;
+      _freeSpace = maxSize;
+      reset();
+   }
 
-  std::map<size_t, size_t>::iterator findBlock(size_t &bytes,
-                                               size_t alignment) {
-    for (auto slot = _freeBlocks.begin();
-         slot != _freeBlocks.end(); slot++) {
-      size_t baseAddress = slot->first;
-      size_t padding = calculatePadding(baseAddress, alignment);
-      if (slot->second >= bytes + padding) {
-        bytes += padding;
-        return slot;
+   template <typename F>
+   void init(size_t maxSize, F&& allocFunction) {
+      users += 1;
+      _lock();
+      if (_memory != nullptr) {
+         _unlock();
+         return;
       }
-    }
-    return _freeBlocks.end();
-  }
-
-  template <typename T>
-  [[nodiscard]] T *allocate(const size_t elements) noexcept {
-     if (elements==0){
-           return nullptr;
-     }
-    const size_t bytesToAllocate = elements * sizeof(T);
-    const size_t alignment = std::max(8ul,std::alignment_of<T>::value);
-    size_t allocationSize = bytesToAllocate;
-
-    if (bytesToAllocate > _freeSpace) {
-      return nullptr;
-    }
-
-    _lock();
-    auto candidate = findBlock(allocationSize, alignment);
-    size_t pad = allocationSize - bytesToAllocate;
-    if (candidate == _freeBlocks.end()) {
+      _memory = allocFunction(maxSize);
+      _bytes = maxSize;
+      _freeSpace = maxSize;
+      reset_unsafe();
       _unlock();
-      return nullptr;
-    }
+   }
 
-    // Handle Padding
-    size_t baseAddress = candidate->first + pad;
+   void stats() noexcept {
+      (void)write(1, "*********************************\n", 34);
+      char buf[128];
+      int len = snprintf(buf, sizeof(buf), "Capacity=%zu, size=%zu, load=%f\n", capacity(), size(), load());
+      (void)write(1, buf, len);
+      (void)write(1, "FreeSlots\n", 10);
+      for (const auto& slot : _freeBlocks) {
+         len = snprintf(buf, sizeof(buf), "\tBlock %zu with size %zu\n", slot.first, slot.second);
+         (void)write(1, buf, len);
+      }
+      (void)write(1, "\nAllocSlots\n", 12);
+      for (const auto& slot : _allocBlocks) {
+         len = snprintf(buf, sizeof(buf), "\tBlock %zu with size=%zu and padding=%zu\n", slot.first, slot.second.size,
+                        slot.second.padding);
+         (void)write(1, buf, len);
+      }
+      (void)write(1, "*********************************\n", 34);
+   }
 
-    // Split blocks
-    _allocBlocks.insert(std::pair<size_t, AllocHeader>{
-        baseAddress, AllocHeader{allocationSize,pad}});
-    _freeSpace -= allocationSize;
-    if (_freeSpace > 0) {
-      size_t newBlock = candidate->first + allocationSize;
-      size_t newBlockSize = candidate->second - allocationSize;
-      _freeBlocks.insert(std::pair<size_t, size_t>{newBlock, newBlockSize});
-    }
-    _freeBlocks.erase(candidate);
-    _unlock();
-    return reinterpret_cast<T *>(baseAddress);
-  }
+   void defrag() {
+      _lock();
+      auto left = _freeBlocks.begin();
+      while (left != _freeBlocks.end()) {
+         auto right = left;
+         right++;
+         if (right == _freeBlocks.end()) {
+            _unlock();
+            return;
+         }
 
-  bool deallocate(void *ptr) noexcept {
+         if (left->first + left->second == right->first) {
+            std::pair<size_t, size_t> newBlock{left->first, left->second + right->second};
+            _freeBlocks.erase(left);
+            _freeBlocks.erase(right);
+            auto ok = _freeBlocks.insert(newBlock);
+            if (ok.second) {
+               left = ok.first;
+            } else {
+               throw std::runtime_error("Something caused a catastrophic failure "
+                                        "during defragmentation");
+            }
+         } else {
+            left++;
+         }
+      }
+      _unlock();
+      return;
+   }
 
-    if (ptr == nullptr) {
+   std::map<size_t, size_t>::iterator findBlock(size_t& bytes, size_t alignment) {
+      for (std::map<size_t, size_t>::iterator slot = _freeBlocks.begin(); slot != _freeBlocks.end(); slot++) {
+         size_t baseAddress = slot->first;
+         size_t padding = calculatePadding(baseAddress, alignment);
+         if (slot->second >= bytes + padding) {
+            bytes += padding;
+            return slot;
+         }
+      }
+      return _freeBlocks.end();
+   }
+
+   template <typename T>
+   [[nodiscard]] T* allocate(const size_t elements) noexcept {
+      if (elements == 0) {
+         return nullptr;
+      }
+      const size_t bytesToAllocate = elements * sizeof(T);
+      const size_t alignment = std::max(8ul, std::alignment_of<T>::value);
+      size_t allocationSize = bytesToAllocate;
+
+      if (bytesToAllocate > _freeSpace) {
+         return nullptr;
+      }
+
+      _lock();
+      auto candidate = findBlock(allocationSize, alignment);
+      size_t pad = allocationSize - bytesToAllocate;
+      if (candidate == _freeBlocks.end()) {
+         _unlock();
+         return nullptr;
+      }
+
+      // Handle Padding
+      size_t baseAddress = candidate->first + pad;
+
+      // Split blocks
+      _allocBlocks.insert(std::pair<size_t, AllocHeader>{baseAddress, AllocHeader{allocationSize, pad}});
+      _freeSpace -= allocationSize;
+      if (_freeSpace > 0) {
+         size_t newBlock = candidate->first + allocationSize;
+         size_t newBlockSize = candidate->second - allocationSize;
+         _freeBlocks.insert(std::pair<size_t, size_t>{newBlock, newBlockSize});
+      }
+      _freeBlocks.erase(candidate);
+      
+      HWM = std::max(HWM, load());
+      _unlock();
+      return reinterpret_cast<T*>(baseAddress);
+   }
+
+   bool deallocate(void* ptr) noexcept {
+      if (ptr == nullptr) {
+         return true;
+      }
+
+      _lock();
+      auto it = _allocBlocks.find(reinterpret_cast<size_t>(ptr));
+      if (it == _allocBlocks.end()) {
+         _unlock();
+         // std::cerr << "Could not find alloced block to deallocate!" << std::endl;
+         return false;
+      }
+
+      size_t pad = it->second.padding;
+      size_t baseAddress = it->first - pad;
+      _freeBlocks[baseAddress] = it->second.size;
+      _freeSpace += it->second.size;
+      if (it->second.size == 0) {
+         abort();
+      }
+      _allocBlocks.erase(it);
+      _unlock();
       return true;
-    }
-
-    _lock();
-    auto it = _allocBlocks.find(reinterpret_cast<size_t>(ptr));
-    if (it == _allocBlocks.end()) {
-      _unlock();
-      return false;
-    }
-
-    size_t pad = it->second.padding;
-    size_t baseAddress = it->first - pad;
-    _freeBlocks[baseAddress]=it->second.size;
-    _freeSpace += it->second.size;
-    if (it->second.size==0){
-       abort();
-    }
-    _allocBlocks.erase(it);
-    _unlock();
-    return true;
-  }
-  template <typename F>
-  void destroy_with(F&& f){
-     f(_memory);
-  }
-
+   }
+   template <typename F>
+   void destroy_with(F&& f) {
+      if (users == 1) {
+         f(_memory);
+         _memory = nullptr;
+      }
+      users--;
+   }
 };
 } // namespace GENERIC_TS_POOL
